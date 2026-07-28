@@ -1,0 +1,16 @@
+@page
+@model AboutModel
+@{
+    ViewData["Title"] = "About";
+}
+<h1>@ViewData["Title"]</h1>
+
+<p>
+    PocStatus is a sample ASP.NET Core Razor Pages application used to exercise a CI/CD
+    pipeline (GitHub Actions &rarr; container registry &rarr; Harness CD &rarr; Kubernetes)
+    without any database, message queue, or other backing service to stand up first.
+</p>
+<p>
+    It exists purely to prove the pipeline mechanics end-to-end: build, scan, push, deploy,
+    and roll out &mdash; see the <a asp-page="/Status">Status</a> page for pod-level details.
+</p>

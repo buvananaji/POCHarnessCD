@@ -1,0 +1,142 @@
+name: PocStatus CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sonarcloud-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+
+      - name: Setup Java (required by SonarCloud scanner)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Install SonarCloud scanner
+        run: dotnet tool install --global dotnet-sonarscanner
+
+      - name: Build and analyze with SonarCloud
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          dotnet-sonarscanner begin \
+            /k:"kapilch80-arch_poc-status" \
+            /o:"kapilch80-arch" \
+            /d:sonar.token="${SONAR_TOKEN}" \
+            /d:sonar.host.url="https://sonarcloud.io"
+
+          dotnet build PocStatus.csproj -c Release
+
+          dotnet-sonarscanner end /d:sonar.token="${SONAR_TOKEN}"
+
+  docker-build-push:
+    needs: sonarcloud-scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Scan the amd64 build first (the runner's native platform, so no emulation is
+      # involved here). The Dockerfile pins its build stage to $BUILDPLATFORM, so this
+      # image's application layer is identical to what the arm64 variant will contain --
+      # only the final base runtime image differs by platform.
+      - name: Build image for scanning (amd64 only, local, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: |
+            ghcr.io/kapilch80-arch/poc-status:${{ github.sha }}
+            ghcr.io/kapilch80-arch/poc-status:latest
+
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ghcr.io/kapilch80-arch/poc-status:${{ github.sha }}
+          format: cyclonedx
+          output: sbom.cyclonedx.json
+          exit-code: '0'
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-poc-status-${{ github.sha }}
+          path: sbom.cyclonedx.json
+          retention-days: 90
+
+      - name: Scan image with Trivy (report to GitHub Security tab)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ghcr.io/kapilch80-arch/poc-status:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: '0'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Scan image with Trivy (fail build on fixable Critical/High)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ghcr.io/kapilch80-arch/poc-status:${{ github.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Only reachable if the scan gate above passed. Multi-platform manifests can't be
+      # loaded into the local daemon, so this pushes straight to GHCR -- it re-runs the
+      # (fast, cached) build for arm64 in addition to the already-scanned amd64 layer.
+      - name: Build and push multi-arch image (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/kapilch80-arch/poc-status:${{ github.sha }}
+            ghcr.io/kapilch80-arch/poc-status:latest

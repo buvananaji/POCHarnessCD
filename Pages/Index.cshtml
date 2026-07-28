@@ -1,0 +1,16 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Home page";
+}
+
+<div class="text-center">
+    <h1 class="display-4">PocStatus</h1>
+    <p>
+        A minimal ASP.NET Core app with no database or external dependencies &mdash;
+        built as a lightweight, self-contained target for a CI/CD and Kubernetes deployment POC.
+    </p>
+    <p>
+        <a asp-page="/Status">Check pod status &rarr;</a>
+    </p>
+</div>

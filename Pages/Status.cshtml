@@ -1,0 +1,29 @@
+@page
+@model StatusModel
+@{
+    ViewData["Title"] = "Status";
+}
+<h1>@ViewData["Title"]</h1>
+
+<p>Refresh this page after a rolling deployment or scale-up to see the pod name change.</p>
+
+<table class="table">
+    <tbody>
+        <tr>
+            <th scope="row">Pod / host name</th>
+            <td>@Model.HostName</td>
+        </tr>
+        <tr>
+            <th scope="row">Environment</th>
+            <td>@Model.EnvironmentName</td>
+        </tr>
+        <tr>
+            <th scope="row">Server time (UTC)</th>
+            <td>@Model.UtcNow.ToString("u")</td>
+        </tr>
+        <tr>
+            <th scope="row">App version</th>
+            <td>@Model.Version</td>
+        </tr>
+    </tbody>
+</table>
